@@ -1,1 +1,10 @@
+# Visual Studio 2015
 NLog_logstashProj/.vs/
+
+# Build results
+NLog_logstashProj/NLog_logstashProj/bin/Debug
+NLog_logstashProj/NLog_logstashProj/bin/Release
+NLog_logstashProj/NLog_logstashProj/obj/
+
+# User-specific files
+*.suo
