@@ -1,0 +1,12 @@
+C:\Optimove\Source\Repos\NLog_logstatsh\NLog_logstashProj\NLog_logstashProj\bin\Debug\NLog_logstashProj.exe.config
+C:\Optimove\Source\Repos\NLog_logstatsh\NLog_logstashProj\NLog_logstashProj\bin\Debug\NLog_logstashProj.exe
+C:\Optimove\Source\Repos\NLog_logstatsh\NLog_logstashProj\NLog_logstashProj\bin\Debug\NLog_logstashProj.pdb
+C:\Optimove\Source\Repos\NLog_logstatsh\NLog_logstashProj\NLog_logstashProj\obj\Debug\NLog_logstashProj.csprojResolveAssemblyReference.cache
+C:\Optimove\Source\Repos\NLog_logstatsh\NLog_logstashProj\NLog_logstashProj\obj\Debug\NLog_logstashProj.csproj.CoreCompileInputs.cache
+C:\Optimove\Source\Repos\NLog_logstatsh\NLog_logstashProj\NLog_logstashProj\obj\Debug\NLog_logstashProj.exe
+C:\Optimove\Source\Repos\NLog_logstatsh\NLog_logstashProj\NLog_logstashProj\obj\Debug\NLog_logstashProj.pdb
+C:\Optimove\Source\Repos\NLog_logstatsh\NLog_logstashProj\NLog_logstashProj\bin\Debug\NLog.config
+C:\Optimove\Source\Repos\NLog_logstatsh\NLog_logstashProj\NLog_logstashProj\bin\Debug\NLog.dll
+C:\Optimove\Source\Repos\NLog_logstatsh\NLog_logstashProj\NLog_logstashProj\bin\Debug\NLog.xml
+C:\Optimove\Source\Repos\NLog_logstatsh\NLog_logstashProj\NLog_logstashProj\bin\Debug\Newtonsoft.Json.dll
+C:\Optimove\Source\Repos\NLog_logstatsh\NLog_logstashProj\NLog_logstashProj\bin\Debug\Newtonsoft.Json.xml
