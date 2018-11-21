@@ -12,19 +12,32 @@ using System.Xml;
 using Newtonsoft.Json;
 using NLog.Targets;
 using NLog.Layouts;
+using System.Threading;
 
 namespace NLog_logstashProj
 {
     class Program
     {
-        const double NUM_OF_BYTES_IN_MB = 1024 * 1024;
+        public enum Severity { Debug = 1, Verbose = 2, Info = 3, Warn = 4, Error = 5, Critical = 6, Warning = Warn, Fatal = Critical }; //From https://coralogix.com/integrations/coralogix-rest-api/
+
         /*TODO:
          * 1) In the fileName of Nlog, write s.t. the filename will be the Epoch time. Note: There's a chance this entails writing a custom NLog.LayoutRenderer
          * 2) archiveEvery custom value (e.g. every 12 hours)
          * 3) Because of the log fileName formatting (currently ${date:format=yyyy-MM-dd}) need to check what happens when day changes (at midnight) - are files 
          * (or log entries) that are written just before midnight getting archived
          */
-        public const string sampleNLogXMLConfig = @"<?xml version=""1.0"" encoding=""utf-8"" ?>
+        /*
+         * Excpetion writing config:
+           <target name="errors" xsi:type="File" layout="
+           ${message}
+           ${onexception:EXCEPTION OCCURRED\:
+           ${exception:format=type,message,method:maxInnerExceptionLevel=5:innerFormat=shortType,message,method}}"
+           fileName="\Logs\errors-${shortdate}.log"
+           concurrentWrites="true"
+           />
+ </targets>
+         */
+        public static string sampleNLogXMLConfig = @"<?xml version=""1.0"" encoding=""utf-8"" ?>
 <nlog xmlns = ""http://www.nlog-project.org/schemas/NLog.xsd""
       xmlns:xsi=""http://www.w3.org/2001/XMLSchema-instance"">
 
@@ -32,20 +45,31 @@ namespace NLog_logstashProj
 
     <target name=""jsonFile"" 
             type=""File""
-            fileName=""logs/loggingPoc2.json""
-            archiveOldFileOnStartup=""true""        
-            archiveAboveSize=""10240""
+            fileName=""logs/loggingPoc___AppDomainId___.log""
+            
+            archiveAboveSize=""4096000000""
             createDirs=""true""
-            archiveFileName=""readyToBeSent/archived_{#}.log""
-            archiveNumbering=""DateAndSequence""
-            archiveEvery=""Minute""
+            maxArchiveFiles=""1""
             concurrentWrites=""false""
+            keepFileOpen =""true""
+            openFileCacheTimeout =""30""
+            cleanupFileName =""false""
+            autoFlush=""false""
+            openFileFlushTimeout =""1""
+
+            enableArchiveFileCompression =""true""
     >
           <layout xsi:type=""JsonLayout"">
-              <attribute name = ""time"" layout=""${longdate}"" />
-              <attribute name = ""level"" layout=""${level:upperCase=true}""/>
-              <attribute name = ""message"" layout=""${message}"" />
-       </layout>
+            <attribute name='msg' encode='false'>
+                <layout type='JsonLayout'>
+                  <attribute name = ""myTimestamp"" layout=""${gdc:item=epochInMs}"" />
+                  <attribute name = ""Severity"" layout=""${gdc:item=coralogixSeverityMapping}""/>
+                  <attribute name = ""Logger"" layout=""${logger}"" />
+                  <attribute name = ""entryBody"" layout=""${message}"" />
+                  <attribute name = ""thingamajogAttr"" layout=""${message}"" />
+                </layout>
+            </attribute>
+          </layout>
 </target>
     </targets>
 
@@ -53,7 +77,12 @@ namespace NLog_logstashProj
         <logger name = ""*"" minlevel=""Debug"" writeTo=""jsonFile"" />
     </rules>
 </nlog>";
-        /*
+        /*  throwConfigExceptions="true"
+         *  archiveOldFileOnStartup=""true""        
+         *  archiveFileName=""archive/{#}.log""
+            archiveNumbering=""DateAndSequence""
+            archiveEvery=""Day""
+            <attribute name = ""Timestamp"" layout=""${longdate}"" />
          *         public const string sampleNLogXMLConfig = @"<?xml version=""1.0"" encoding=""utf-8"" ?>
 <nlog xmlns = ""http://www.nlog-project.org/schemas/NLog.xsd""
       xmlns:xsi=""http://www.w3.org/2001/XMLSchema-instance"">
@@ -61,6 +90,7 @@ namespace NLog_logstashProj
     <targets>
         <target name = ""logfile"" xsi:type=""File"" fileName=""${ticks}.log"" layout=""${longdate}|${level:uppercase=true}|${logger}|${message}""/>
     </targets>
+      <target name="f" type="File" layout="${message}${onexception:EXCEPTION OCCURRED\:${exception:format=tostring}}" />
 
     <rules>
         <logger name = ""*"" minlevel=""Info"" writeTo=""logconsole"" />
@@ -68,8 +98,8 @@ namespace NLog_logstashProj
     </rules>
 </nlog>";
          */
-        public static readonly IList<string> DEBUG_LEVELS = new ReadOnlyCollection<string>
-            (new List<String> { "Debug", "Verbose", "Info", "Warn", "Error", "Critical" });
+        //public static readonly IList<string> DEBUG_LEVELS = new ReadOnlyCollection<string>
+        //    (new List<String> { "Debug", "Verbose", "Info", "Warn", "Error", "Critical" });
         public class sampleLogEntry
         {
             [JsonProperty]
@@ -83,7 +113,7 @@ namespace NLog_logstashProj
             private Dictionary<string, object> generalProps;
             public sampleLogEntry()
             {
-                timestamp = getCurrentTime();
+                timestamp = getCurrentTimeInSeconds();
                 generalProps = new Dictionary<string, object>();
             }
 
@@ -109,14 +139,9 @@ namespace NLog_logstashProj
             }
 
 
-            public static double getCurrentTime()
-            {
-                DateTime dt1970 = new DateTime(1970, 1, 1);
-                DateTime current = DateTime.Now;//DateTime.UtcNow for unix timestamp
-                TimeSpan span = current - dt1970;
-                return span.TotalMilliseconds;
-            }
+            
         }
+
 
         static Logger logger = NLog.LogManager.GetCurrentClassLogger();
 
@@ -132,31 +157,45 @@ namespace NLog_logstashProj
             //config.AddRule(LogLevel.Debug, LogLevel.Fatal, logfile);
             //NLog.LogManager.Configuration = config;
 
+            Random rnd = new Random();
 
+            string curRunId = $"ThreadId {Thread.CurrentThread.ManagedThreadId} AppDomainId {AppDomain.CurrentDomain.Id}";
+            string curTime = DateTime.Now.ToString("h:mm:ss tt");
+            Console.WriteLine($"Run {curRunId} - Start. {curTime}");
+
+            //int sleepTime = rnd.Next(1000, 2000);
+            //Console.WriteLine($"Sleeping for {sleepTime} ms");
+            //System.Threading.Thread.Sleep(sleepTime);
+            
             //Configuring NLog from xml string:
+            sampleNLogXMLConfig = sampleNLogXMLConfig.Replace("___AppDomainId___", Convert.ToString(AppDomain.CurrentDomain.Id));
             StringReader sr = new StringReader(sampleNLogXMLConfig);
             XmlReader xr = XmlReader.Create(sr);
             XmlLoggingConfiguration config = new XmlLoggingConfiguration(xr, null, false);
             LogManager.Configuration = config;
             //NLog is now configured just as if the XML above had been in NLog.config or app.config
 
-            uint numOfLogWrites = 2;
+            uint numOfLogWrites = 1;
             List<Task> tasks = new List<Task>();
-            Random rnd = new Random();
             for (int i = 0; i < numOfLogWrites; i++)
             {
                 Task curTask =
                 new Task((object state) =>
                 {
                     int index = (int)state;
-                    int msgSizeInBytes = rnd.Next(1, 60);
+                    //int msgSizeInBytes = rnd.Next(1, 60);
                     int alphabetRange = (int)'z' - (int)'a';
                     char c = 'a';
                     c += (char)(index % alphabetRange);
-                    string content = new string(c, msgSizeInBytes * 1024);
-                    string entryBody = $"logMsg#{index}{Environment.NewLine}{content}";
+                    //string content = new string(c, 15 * 1024);
+                    string content ="aaa";
+                    double currentTimeInSeconds = getCurrentTimeInSeconds();
+                    string entryBody = $"logMsg#{index} time:{currentTimeInSeconds}{Environment.NewLine}{content}";
 
                     //logEntry.AddProps(new Dictionary<string, object> { { $"prop{index}", $"val{index}" } });
+                    writeToLog(entryBody);
+                    /*
+                     * exception write tst:
                     if (index % 2 == 0)
                     {
                         writeToLog(entryBody);
@@ -166,19 +205,21 @@ namespace NLog_logstashProj
                         Exception dummyEx = new Exception($"dummyEx#{index}");
                         writeToLog(dummyEx, entryBody);
 
-                    }
+                    }*/
                 }, (object)i);
                 curTask.Start(TaskScheduler.Default);
                 tasks.Add(curTask);
-                if (i % 2 == 0)
-                {
-                    int sleepTime = rnd.Next(0, 1500);
-                    Console.WriteLine($"Sleeping for {sleepTime} ms");
-                    System.Threading.Thread.Sleep(sleepTime);
-                }
+                //if (i % 2 == 0)
+                //{
+                //    int sleepTime = rnd.Next(0, 1500);
+                //    Console.WriteLine($"Sleeping for {sleepTime} ms");
+                //    System.Threading.Thread.Sleep(sleepTime);
+                //}
             }
             Task.WaitAll(tasks.ToArray());
-            Console.WriteLine("FIN");
+            curTime = DateTime.Now.ToString("h:mm:ss tt");
+            Console.WriteLine($"Run ${curRunId} - End. {curTime}");
+
         }
 
         private static void addOrUpdateAttributesToJsonFile(Dictionary<string, string> additionalParams)
@@ -202,6 +243,7 @@ namespace NLog_logstashProj
             }
             LogManager.ReconfigExistingLoggers();
             //TODO: foreach config param check if value changed and don't call LogManager.ReconfigExistingLoggers() if no value changed
+
 
         }
 
@@ -252,14 +294,18 @@ namespace NLog_logstashProj
                 //Idk what do we wanna do here? I think throw as is
             }
         }
-        public static void writeToLog(string msg, string logLevel = "info", Dictionary<string, string> additionalParams = null)
+        public static void writeToLog(string msg, string logLevel = "warn", Dictionary<string, string> additionalParams = null)
         {
             try
             {
                 addOrUpdateAttributesToJsonFile(additionalParams);
+                int coralogixSeverityMapping = (int)Enum.Parse(typeof(Severity), logLevel, true);
+                GlobalDiagnosticsContext.Set("coralogixSeverityMapping", coralogixSeverityMapping);
+                GlobalDiagnosticsContext.Set("epochInMs", getCurrentTimeInMS());
                 if (String.Equals(logLevel, "info"))
                 {
                     logger.Info(msg);
+                    logger.Trace($"Trace msg: {msg}");
                     //var s = Newtonsoft.Json.JsonConvert.SerializeObject(logger);
 
                 }
@@ -291,6 +337,19 @@ namespace NLog_logstashProj
             logEntry.GetReadyToBeSent();
             writeToLog(JsonConvert.SerializeObject(logEntry), logLevel);
         }
-
+        public static double getCurrentTimeInSeconds()
+        {
+            DateTime dt1970 = new DateTime(1970, 1, 1);
+            DateTime current = DateTime.Now;//DateTime.UtcNow for unix timestamp
+            TimeSpan span = current - dt1970;
+            return span.TotalSeconds;
+        }
+        public static double getCurrentTimeInMS()
+        {
+            DateTime dt1970 = new DateTime(1970, 1, 1);
+            DateTime current = DateTime.Now;//DateTime.UtcNow for unix timestamp
+            TimeSpan span = current - dt1970;
+            return span.TotalMilliseconds;
+        }
     }
 }
