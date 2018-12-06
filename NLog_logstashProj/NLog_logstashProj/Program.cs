@@ -30,8 +30,7 @@ namespace NLog_logstashProj
          * Excpetion writing config:
            <target name="errors" xsi:type="File" layout="
            ${message}
-           ${onexception:EXCEPTION OCCURRED\:
-           ${exception:format=type,message,method:maxInnerExceptionLevel=5:innerFormat=shortType,message,method}}"
+           ${onexception:EXCEPTION OCCURRED\:${exception:format=type,message,method:maxInnerExceptionLevel=5:innerFormat=shortType,message,method}}"
            fileName="\Logs\errors-${shortdate}.log"
            concurrentWrites="true"
            />
@@ -62,11 +61,18 @@ namespace NLog_logstashProj
           <layout xsi:type=""JsonLayout"">
             <attribute name='msg' encode='false'>
                 <layout type='JsonLayout'>
-                  <attribute name = ""myTimestamp"" layout=""${gdc:item=epochInMs}"" />
-                  <attribute name = ""Severity"" layout=""${gdc:item=coralogixSeverityMapping}""/>
+                  
                   <attribute name = ""Logger"" layout=""${logger}"" />
                   <attribute name = ""entryBody"" layout=""${message}"" />
-                  <attribute name = ""thingamajogAttr"" layout=""${message}"" />
+
+                  <attribute name = ""GlobalContextItem"" layout=""${gdc:item=globalItemVal}""/>
+
+                  <attribute name = ""mdcItem"" layout=""${mdc:item=mdcItemVal}""/>
+
+                  <attribute name = ""mdlcItem"" layout=""${mdlc:item=mdlcItemVal}""/>
+
+                   <attribute name = ""myTimestamp"" layout=""${event-properties:item=epochInMs}"" />
+                  <attribute name = ""Severity"" layout=""${event-properties:item=coralogixSeverityMapping}""/>
                 </layout>
             </attribute>
           </layout>
@@ -175,8 +181,11 @@ namespace NLog_logstashProj
             LogManager.Configuration = config;
             //NLog is now configured just as if the XML above had been in NLog.config or app.config
 
-            uint numOfLogWrites = 1;
+            uint numOfLogWrites = 5;
             List<Task> tasks = new List<Task>();
+
+            GlobalDiagnosticsContext.Set("globalItemVal", "This is a global param val");
+
             for (int i = 0; i < numOfLogWrites; i++)
             {
                 Task curTask =
@@ -193,19 +202,31 @@ namespace NLog_logstashProj
                     string entryBody = $"logMsg#{index} time:{currentTimeInSeconds}{Environment.NewLine}{content}";
 
                     //logEntry.AddProps(new Dictionary<string, object> { { $"prop{index}", $"val{index}" } });
-                    writeToLog(entryBody);
-                    /*
-                     * exception write tst:
+                    
                     if (index % 2 == 0)
                     {
-                        writeToLog(entryBody);
+                        if(index == 2)
+                        {
+                            MappedDiagnosticsContext.Set("mdcItemVal", null);
+                        }
+                        else
+                        {
+                            MappedDiagnosticsContext.Set("mdcItemVal", $"This is a MappedDiagnosticsContext param val, index {index}");
+                        }
                     }
-                    else
+                    else if (index % 3 == 0)
                     {
-                        Exception dummyEx = new Exception($"dummyEx#{index}");
-                        writeToLog(dummyEx, entryBody);
+                        MappedDiagnosticsLogicalContext.Set("mdlcItemVal", $"This is a MappedDiagnosticsLogicalContext param val, index {index}");
+                    }
+                    writeToLog(entryBody);
 
-                    }*/
+                    //exception write tst:
+                    //else
+                    //{
+                    //    Exception dummyEx = new Exception($"dummyEx#{index}");
+                    //    writeToLog(dummyEx, entryBody);
+
+                    //}
                 }, (object)i);
                 curTask.Start(TaskScheduler.Default);
                 tasks.Add(curTask);
@@ -262,57 +283,18 @@ namespace NLog_logstashProj
                 || ex.HResult == HR_ERROR_DISK_FULL;
         }
 
-        public static void writeToLog(Exception logEx, string msg, string logLevel = "info", Dictionary<string, string> additionalParams = null)
+        public static void writeToLog(string msg, string logLevel = "warn", Dictionary<string, string> additionalParams = null, Exception logEx = null)
         {
             try
             {
                 addOrUpdateAttributesToJsonFile(additionalParams);
-                if (String.Equals(logLevel, "info"))
-                {
-                    logger.Info(logEx, msg);
-                    //var s = Newtonsoft.Json.JsonConvert.SerializeObject(logger);
+                LogEventInfo theEvent = new LogEventInfo(LogLevel.FromString(logLevel), logger.Name, msg);
+                theEvent.Properties["epochInMs"] = getCurrentTimeInSeconds();// coralogixSeverityMapping
 
-                }
-                else
-                {
-                    logger.Warn(logEx, msg);
-                }
-            }
-            catch (IOException ex)
-            {
-                if (IsDiskFull(ex))
-                {
-                    /*TODO:
-                     * 1) Check if we have log files in this folder:
-                     * 1.1) If so: Delete file\s according to LRU & then retry log it 
-                     * 1.2) Else: Log it to eventviewer and throw Exception as is (by "throw;")
-                     */
-                }
-            }
-            catch (Exception ex)
-            {
-                //Idk what do we wanna do here? I think throw as is
-            }
-        }
-        public static void writeToLog(string msg, string logLevel = "warn", Dictionary<string, string> additionalParams = null)
-        {
-            try
-            {
-                addOrUpdateAttributesToJsonFile(additionalParams);
                 int coralogixSeverityMapping = (int)Enum.Parse(typeof(Severity), logLevel, true);
-                GlobalDiagnosticsContext.Set("coralogixSeverityMapping", coralogixSeverityMapping);
-                GlobalDiagnosticsContext.Set("epochInMs", getCurrentTimeInMS());
-                if (String.Equals(logLevel, "info"))
-                {
-                    logger.Info(msg);
-                    logger.Trace($"Trace msg: {msg}");
-                    //var s = Newtonsoft.Json.JsonConvert.SerializeObject(logger);
+                theEvent.Properties["coralogixSeverityMapping"] = coralogixSeverityMapping;
 
-                }
-                else
-                {
-                    logger.Warn(msg);
-                }
+                logger.Log(theEvent);
             }
             catch (IOException ex)
             {
