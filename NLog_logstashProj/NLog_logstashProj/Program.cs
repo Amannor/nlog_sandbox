@@ -13,6 +13,7 @@ using Newtonsoft.Json;
 using NLog.Targets;
 using NLog.Layouts;
 using System.Threading;
+using System.Diagnostics;
 
 namespace NLog_logstashProj
 {
@@ -42,6 +43,27 @@ namespace NLog_logstashProj
 
     <targets>
 
+<target xsi:type=""EventLog"" 
+        name=""asyncFile"" 
+        layout=""${message}"" 
+        machineName="".""     
+        log=""Application"" />
+    </targets>
+
+    <rules>
+        <logger name = ""*"" minlevel=""Debug"" writeTo=""asyncFile"" />
+    </rules>
+</nlog>";
+        /*    
+         *    
+         *    
+         *      <target xsi:type=""EventLog""
+          name=""EventViewerLogger""
+          layout=""${longdate}|${logger}|${level:uppercase=true}|${message}"" />
+    </targets>
+         *    
+         *    
+         *    
     <target name=""jsonFile"" 
             type=""File""
             fileName=""logs/loggingPoc___AppDomainId___.log""
@@ -77,13 +99,22 @@ namespace NLog_logstashProj
             </attribute>
           </layout>
 </target>
-    </targets>
-
-    <rules>
-        <logger name = ""*"" minlevel=""Debug"" writeTo=""jsonFile"" />
-    </rules>
-</nlog>";
-        /*  throwConfigExceptions="true"
+         *    
+         *    
+         *    
+         *    
+         *    <target xsi:type=""EventLog""
+          name=""EventViewerLogger""
+          layout=""${longdate}|${logger}|${level:uppercase=true}|${message}""
+          machineName=""${machinename}""
+          source=""Layout"" 
+          category=""Layout""
+          eventId=""Layout""
+          log=""String""
+          maxKilobytes=""long""
+          maxMessageLength=""Integer"" />
+         *  
+         *  throwConfigExceptions="true"
          *  archiveOldFileOnStartup=""true""        
          *  archiveFileName=""archive/{#}.log""
             archiveNumbering=""DateAndSequence""
@@ -149,7 +180,7 @@ namespace NLog_logstashProj
         }
 
 
-        static Logger logger = NLog.LogManager.GetCurrentClassLogger();
+        static Logger logger;
 
         public static void Main(string[] args)
         {
@@ -179,6 +210,9 @@ namespace NLog_logstashProj
             XmlReader xr = XmlReader.Create(sr);
             XmlLoggingConfiguration config = new XmlLoggingConfiguration(xr, null, false);
             LogManager.Configuration = config;
+            logger = NLog.LogManager.GetCurrentClassLogger();
+            //LogManager.ReconfigExistingLoggers();
+            registerToEventViewer();
             //NLog is now configured just as if the XML above had been in NLog.config or app.config
 
             uint numOfLogWrites = 5;
@@ -241,6 +275,35 @@ namespace NLog_logstashProj
             curTime = DateTime.Now.ToString("h:mm:ss tt");
             Console.WriteLine($"Run ${curRunId} - End. {curTime}");
 
+        }
+
+        private static bool CheckSourceExists(string source, string logName = "Application")
+        {
+            if (EventLog.SourceExists(source))
+            {
+                EventLog evLog = new EventLog { Source = source };
+                if (evLog.Log != logName)
+                {
+                    EventLog.DeleteEventSource(source);
+                }
+            }
+
+            if (!EventLog.SourceExists(source))
+            {
+                EventLog.CreateEventSource(source, logName);
+                EventLog.WriteEntry(source, $"Event Log Created {logName}_{source}", EventLogEntryType.Information);
+            }
+
+            return EventLog.SourceExists(source);
+        }
+
+        private static void registerToEventViewer(string source = null)
+        {
+            source = source ?? AppDomain.CurrentDomain.FriendlyName;
+            if (CheckSourceExists(source))
+            {
+                EventLog.WriteEntry(source, "AlonMInitPocMsg!!");
+            }
         }
 
         private static void addOrUpdateAttributesToJsonFile(Dictionary<string, string> additionalParams)
