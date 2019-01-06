@@ -20,6 +20,7 @@ namespace NLog_logstashProj
     class Program
     {
         public enum Severity { Debug = 1, Verbose = 2, Info = 3, Warn = 4, Error = 5, Critical = 6, Warning = Warn, Fatal = Critical }; //From https://coralogix.com/integrations/coralogix-rest-api/
+        public const string EVENT_VIEWER_SRC_NAME = "OptimoveLogging";
 
         /*TODO:
          * 1) In the fileName of Nlog, write s.t. the filename will be the Epoch time. Note: There's a chance this entails writing a custom NLog.LayoutRenderer
@@ -39,19 +40,65 @@ namespace NLog_logstashProj
          */
         public static string sampleNLogXMLConfig = @"<?xml version=""1.0"" encoding=""utf-8"" ?>
 <nlog xmlns = ""http://www.nlog-project.org/schemas/NLog.xsd""
-      xmlns:xsi=""http://www.w3.org/2001/XMLSchema-instance"">
+      xmlns:xsi=""http://www.w3.org/2001/XMLSchema-instance""
+      throwConfigExceptions=""true"">
 
     <targets>
+    <target xsi:type=""FallbackGroup"" name=""all"" returnToFirstOnSuccess=""true"">
+        <target name = ""jsonFile"" 
+            type=""File""
+            fileName=""logs/loggingPoc___AppDomainId___.log""
+            archiveAboveSize=""4096000000""
+            createDirs=""true""
+            maxArchiveFiles=""1""
+            concurrentWrites=""false""
+            keepFileOpen =""true""
+            openFileCacheTimeout =""30""
+            cleanupFileName =""false""
+            autoFlush=""false""
+            openFileFlushTimeout =""1""
+            enableArchiveFileCompression =""true"">
 
-<target xsi:type=""EventLog"" 
+           <layout xsi:type=""JsonLayout"">
+                <attribute name = 'msg' encode='false'>
+                    <layout type = 'JsonLayout' >
+                      <attribute name = ""Logger"" layout=""${logger}"" />
+                      <attribute name = ""entryBody"" layout=""${message}"" />
+                      <attribute name = ""GlobalContextItem"" layout=""${gdc:item=globalItemVal}""/>
+                      <attribute name = ""mdcItem"" layout=""${mdc:item=mdcItemVal}""/>
+                      <attribute name = ""mdlcItem"" layout=""${mdlc:item=mdlcItemVal}""/>
+                      <attribute name = ""myTimestamp"" layout=""${event-properties:item=epochInMs }"" />
+                      <attribute name = ""Severity"" layout=""${event-properties:item=coralogixSeverityMapping }""/>
+                    </layout>
+                </attribute>
+            </layout>
+        
+          </target>
+
+        <target xsi:type=""EventLog"" 
         name=""asyncFile"" 
-        layout=""${message}"" 
         machineName="".""     
-        log=""Application"" />
+        log=""Application""
+        source=""___EventViewerSrcName__"">
+           <layout xsi:type=""JsonLayout"">
+                <attribute name = 'msg' encode='false'>
+                    <layout type = 'JsonLayout' >
+                      <attribute name = ""Logger"" layout=""${logger}"" />
+                      <attribute name = ""entryBody"" layout=""${message}"" />
+                      <attribute name = ""GlobalContextItem"" layout=""${gdc:item=globalItemVal}""/>
+                      <attribute name = ""mdcItem"" layout=""${mdc:item=mdcItemVal}""/>
+                      <attribute name = ""mdlcItem"" layout=""${mdlc:item=mdlcItemVal}""/>
+                      <attribute name = ""myTimestamp"" layout=""${event-properties:item=epochInMs }"" />
+                      <attribute name = ""Severity"" layout=""${event-properties:item=coralogixSeverityMapping }""/>
+                    </layout>
+                </attribute>
+            </layout>
+        </target>
+    </target>
     </targets>
 
     <rules>
-        <logger name = ""*"" minlevel=""Debug"" writeTo=""asyncFile"" />
+        <logger name = ""*"" minlevel=""Debug"" writeTo=""all"" />
     </rules>
 </nlog>";
         /*    
@@ -107,7 +154,7 @@ namespace NLog_logstashProj
           name=""EventViewerLogger""
           layout=""${longdate}|${logger}|${level:uppercase=true}|${message}""
           machineName=""${machinename}""
-          source=""Layout"" 
+          source=""NLogBackUpLogger"" 
           category=""Layout""
           eventId=""Layout""
           log=""String""
@@ -203,16 +250,16 @@ namespace NLog_logstashProj
             //int sleepTime = rnd.Next(1000, 2000);
             //Console.WriteLine($"Sleeping for {sleepTime} ms");
             //System.Threading.Thread.Sleep(sleepTime);
-            
+
             //Configuring NLog from xml string:
-            sampleNLogXMLConfig = sampleNLogXMLConfig.Replace("___AppDomainId___", Convert.ToString(AppDomain.CurrentDomain.Id));
+            sampleNLogXMLConfig = replacePlaceHolderInConfigString();
             StringReader sr = new StringReader(sampleNLogXMLConfig);
             XmlReader xr = XmlReader.Create(sr);
-            XmlLoggingConfiguration config = new XmlLoggingConfiguration(xr, null, false);
+            XmlLoggingConfiguration config = new XmlLoggingConfiguration(xr, null, false); //This line throws in case of invalid configuration
             LogManager.Configuration = config;
             logger = NLog.LogManager.GetCurrentClassLogger();
-            //LogManager.ReconfigExistingLoggers();
-            registerToEventViewer();
+            LogManager.ReconfigExistingLoggers();
+            registerToEventViewer(EVENT_VIEWER_SRC_NAME);
             //NLog is now configured just as if the XML above had been in NLog.config or app.config
 
             uint numOfLogWrites = 5;
@@ -231,7 +278,7 @@ namespace NLog_logstashProj
                     char c = 'a';
                     c += (char)(index % alphabetRange);
                     //string content = new string(c, 15 * 1024);
-                    string content ="aaa";
+                    string content =$"{c}{c}{c}";
                     double currentTimeInSeconds = getCurrentTimeInSeconds();
                     string entryBody = $"logMsg#{index} time:{currentTimeInSeconds}{Environment.NewLine}{content}";
 
@@ -277,15 +324,29 @@ namespace NLog_logstashProj
 
         }
 
+        private static string replacePlaceHolderInConfigString()
+        {
+            sampleNLogXMLConfig = sampleNLogXMLConfig.Replace("___AppDomainId___", Convert.ToString(AppDomain.CurrentDomain.Id));
+            sampleNLogXMLConfig = sampleNLogXMLConfig.Replace("___EventViewerSrcName__", EVENT_VIEWER_SRC_NAME);
+            return sampleNLogXMLConfig;
+        }
+
         private static bool CheckSourceExists(string source, string logName = "Application")
         {
-            if (EventLog.SourceExists(source))
+            try
             {
-                EventLog evLog = new EventLog { Source = source };
-                if (evLog.Log != logName)
+                if (EventLog.SourceExists(source))
                 {
-                    EventLog.DeleteEventSource(source);
+                    EventLog evLog = new EventLog { Source = source };
+                    if (evLog.Log != logName)
+                    {
+                        EventLog.DeleteEventSource(source);
+                    }
                 }
+            }
+            catch (System.Security.SecurityException securityEx)
+            {
+                EventLog.CreateEventSource(source, logName);
             }
 
             if (!EventLog.SourceExists(source))
